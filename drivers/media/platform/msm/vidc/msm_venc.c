@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2014, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -41,6 +41,26 @@
 
 #define L_MODE V4L2_MPEG_VIDEO_H264_LOOP_FILTER_MODE_DISABLED_AT_SLICE_BOUNDARY
 #define CODING V4L2_MPEG_VIDEO_MPEG4_PROFILE_ADVANCED_CODING_EFFICIENCY
+
+/* Default 601 to 709 conversion coefficients for resolution: 176x144
+ * negative coeffs are converted to s4.9 format
+ * e.g. -22 converted to ((1<<13) - 22)
+ */
+#define MAX_MATRIX_COEFFS 9
+#define MAX_BIAS_COEFFS 3
+#define MAX_LIMIT_COEFFS 6
+/* 3x3 transformation matrix coefficients in s4.9 fixed point format */
+static u32 vpe_csc_601_to_709_matrix_coeff[MAX_MATRIX_COEFFS] = {
+	0x1BA, 0, 0, 0, 0x1C4, 0, 0, 0, 0x1C4
+};
+/* offset coefficients in s9 fixed point format */
+static u32 vpe_csc_601_to_709_bias_coeff[MAX_BIAS_COEFFS] = {
+    0x10, 0x10, 0x10
+};
+/* clamping value for Y/U/V([min,max] for Y/U/V) */
+static u32 vpe_csc_601_to_709_limit_coeff[MAX_LIMIT_COEFFS] = {
+	0x10, 0xEB, 0x10, 0xF0, 0x10, 0xF0
+};
 
 static const char *const mpeg_video_rate_control[] = {
 	"No Rate Control",
@@ -1001,53 +1021,11 @@ static int msm_venc_queue_setup(struct vb2_queue *q,
 	return rc;
 }
 
-static int msm_venc_enable_hier_p(struct msm_vidc_inst *inst)
-{
-	int num_enh_layers = 0;
-	u32 property_id = 0;
-	struct hfi_device *hdev = NULL;
-	int rc = 0;
-
-	if (!inst || !inst->core || !inst->core->device) {
-		dprintk(VIDC_ERR, "%s invalid parameters\n", __func__);
-		return -EINVAL;
-	}
-
-	if (inst->fmts[CAPTURE_PORT]->fourcc != V4L2_PIX_FMT_VP8)
-		return 0;
-
-	num_enh_layers = inst->capability.hier_p.max - 1;
-	if (!num_enh_layers)
-		return 0;
-
-	hdev = inst->core->device;
-	property_id = HAL_PARAM_VENC_HIER_P_MAX_ENH_LAYERS;
-
-	rc = call_hfi_op(hdev, session_set_property,
-			(void *)inst->session, property_id,
-			(void *)&num_enh_layers);
-	if (rc) {
-		dprintk(VIDC_ERR,
-			"%s: failed with error = %d\n", __func__, rc);
-	}
-	return rc;
-}
-
 static inline int start_streaming(struct msm_vidc_inst *inst)
 {
 	int rc = 0;
 	struct vb2_buf_entry *temp;
 	struct list_head *ptr, *next;
-
-	if (!inst || !inst->core || !inst->core->device) {
-		dprintk(VIDC_ERR, "%s invalid parameters\n", __func__);
-		return -EINVAL;
-	}
-
-	rc = msm_venc_enable_hier_p(inst);
-	if (rc)
-		return rc;
-
 	if (inst->capability.pixelprocess_capabilities &
 		HAL_VIDEO_ENCODER_SCALING_CAPABILITY)
 		rc = msm_comm_check_scaling_supported(inst);
@@ -1549,10 +1527,16 @@ static int try_set_ctrl(struct msm_vidc_inst *inst, struct v4l2_ctrl *ctrl)
 			case V4L2_CID_MPEG_VIDC_VIDEO_RATE_CONTROL_VBR_CFR:
 				update_ctrl.val =
 					V4L2_MPEG_VIDEO_BITRATE_MODE_VBR;
+				break;
 			case V4L2_CID_MPEG_VIDC_VIDEO_RATE_CONTROL_CBR_VFR:
 			case V4L2_CID_MPEG_VIDC_VIDEO_RATE_CONTROL_CBR_CFR:
 				update_ctrl.val =
 					V4L2_MPEG_VIDEO_BITRATE_MODE_CBR;
+				break;
+			default:
+				dprintk(VIDC_ERR,
+					"Unknown Rate control method (%d)", ctrl->val);
+				break;
 			}
 
 			final_mode = ctrl->val;
@@ -2144,7 +2128,7 @@ static int try_set_ctrl(struct msm_vidc_inst *inst, struct v4l2_ctrl *ctrl)
 		pdata = &markltr;
 		break;
 	case V4L2_CID_MPEG_VIDC_VIDEO_HIER_P_NUM_LAYERS:
-		property_id = HAL_CONFIG_VENC_HIER_P_NUM_FRAMES;
+		property_id = HAL_PARAM_VENC_HIER_P_NUM_FRAMES;
 		hier_p_layers = ctrl->val;
 		if (hier_p_layers > (inst->capability.hier_p.max - 1)) {
 			dprintk(VIDC_ERR,
@@ -2512,6 +2496,35 @@ int msm_venc_s_parm(struct msm_vidc_inst *inst, struct v4l2_streamparm *a)
 exit:
 	return rc;
 }
+
+int msm_venc_s_csc(struct msm_vidc_inst *inst)
+{
+	int rc = 0;
+	int count = 0;
+	struct hal_vpe_color_space_conversion vpe_csc;
+
+	dprintk(VIDC_DBG, "%s\n", __func__);
+
+	while (count < MAX_MATRIX_COEFFS) {
+		if (count < MAX_BIAS_COEFFS)
+			vpe_csc.csc_bias[count] =
+				vpe_csc_601_to_709_bias_coeff[count];
+		if (count < MAX_LIMIT_COEFFS)
+			vpe_csc.csc_limit[count] =
+				vpe_csc_601_to_709_limit_coeff[count];
+		vpe_csc.csc_matrix[count] =
+			vpe_csc_601_to_709_matrix_coeff[count];
+		count = count + 1;
+	}
+	rc = msm_comm_try_set_prop(inst,
+			HAL_PARAM_VPE_COLOR_SPACE_CONVERSION, &vpe_csc);
+	if (rc) {
+		dprintk(VIDC_ERR, "%s vpe csc set_prop skip\n",
+					__func__);
+	}
+	return rc;
+}
+
 int msm_venc_s_fmt(struct msm_vidc_inst *inst, struct v4l2_format *f)
 {
 	struct msm_vidc_format *fmt = NULL;
@@ -2529,6 +2542,10 @@ int msm_venc_s_fmt(struct msm_vidc_inst *inst, struct v4l2_format *f)
 		return -EINVAL;
 	}
 	hdev = inst->core->device;
+
+//	if (msm_vidc_vpe_csc_601_to_709) {
+		msm_venc_s_csc(inst);
+//	}
 
 	if (f->type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE) {
 		fmt = msm_comm_get_pixel_fmt_fourcc(venc_formats,
@@ -2694,16 +2711,8 @@ int msm_venc_g_fmt(struct msm_vidc_inst *inst, struct v4l2_format *f)
 				buff_req_buffer->buffer_size : 0;
 		}
 		for (i = 0; i < fmt->num_planes; ++i) {
-			if (f->type == V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE) {
-				inst->bufq[OUTPUT_PORT].vb2_bufq.
-				plane_sizes[i] =
-				f->fmt.pix_mp.plane_fmt[i].sizeimage;
-			} else if (f->type ==
-				V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE) {
-				inst->bufq[CAPTURE_PORT].vb2_bufq.
-				plane_sizes[i] =
-				f->fmt.pix_mp.plane_fmt[i].sizeimage;
-			}
+			inst->bufq[CAPTURE_PORT].vb2_bufq.plane_sizes[i] =
+			f->fmt.pix_mp.plane_fmt[i].sizeimage;
 		}
 	} else {
 		dprintk(VIDC_ERR,
@@ -2733,7 +2742,7 @@ int msm_venc_reqbufs(struct msm_vidc_inst *inst, struct v4l2_requestbuffers *b)
 	rc = vb2_reqbufs(&q->vb2_bufq, b);
 	mutex_unlock(&q->lock);
 	if (rc)
-		dprintk(VIDC_DBG, "Failed to get reqbufs, %d\n", rc);
+		dprintk(VIDC_ERR, "Failed to get reqbufs, %d\n", rc);
 	return rc;
 }
 

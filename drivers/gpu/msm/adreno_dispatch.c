@@ -33,15 +33,6 @@ static unsigned int _context_queue_wait = 10000;
 /* Number of command batches sent at a time from a single context */
 static unsigned int _context_cmdbatch_burst = 5;
 
-/*
- * GFT throttle parameters. If GFT recovered more than
- * X times in Y ms invalidate the context and do not attempt recovery.
- * X -> _fault_throttle_burst
- * Y -> _fault_throttle_time
- */
-static unsigned int _fault_throttle_time = 3000;
-static unsigned int _fault_throttle_burst = 3;
-
 /* Number of command batches inflight in the ringbuffer at any time */
 static unsigned int _dispatcher_inflight = 15;
 
@@ -87,24 +78,15 @@ static void fault_detect_read(struct kgsl_device *device)
 static inline bool _isidle(struct kgsl_device *device)
 {
 	struct adreno_device *adreno_dev = ADRENO_DEVICE(device);
-	unsigned int ts, i;
-
-	if (!kgsl_pwrctrl_isenabled(device))
-		goto ret;
+	unsigned int ts;
 
 	ts = kgsl_readtimestamp(device, NULL, KGSL_TIMESTAMP_RETIRED);
 
-	/* If GPU HW status is idle return true */
-	if (adreno_hw_isidle(device) ||
-			(ts == adreno_dev->ringbuffer.global_ts))
-		goto ret;
+	if (adreno_isidle(device) == true &&
+		(ts >= adreno_dev->ringbuffer.global_ts))
+		return true;
 
 	return false;
-
-ret:
-	for (i = 0; i < FT_DETECT_REGS_COUNT; i++)
-		fault_detect_regs[i] = 0;
-	return true;
 }
 
 /**
@@ -947,12 +929,6 @@ static int dispatcher_do_fault(struct kgsl_device *device)
 	if (dispatcher->inflight == 0) {
 		KGSL_DRV_WARN(device,
 		"dispatcher_do_fault with 0 inflight commands\n");
-		/*
-		 * For certain faults like h/w fault the interrupts are
-		 * turned off, re-enable here
-		 */
-		if (kgsl_pwrctrl_isenabled(device))
-			kgsl_pwrctrl_irq(device, KGSL_PWRFLAGS_ON);
 		return 0;
 	}
 
@@ -975,6 +951,9 @@ static int dispatcher_do_fault(struct kgsl_device *device)
 		adreno_readreg(adreno_dev, ADRENO_REG_CP_ME_CNTL, &reg);
 		reg |= (1 << 27) | (1 << 28);
 		adreno_writereg(adreno_dev, ADRENO_REG_CP_ME_CNTL, reg);
+
+		/* Skip the PM dump for a timeout because it confuses people */
+		set_bit(KGSL_FT_SKIP_PMDUMP, &cmdbatch->fault_policy);
 	}
 
 	adreno_readreg(adreno_dev, ADRENO_REG_CP_IB1_BASE, &base);
@@ -1037,35 +1016,6 @@ static int dispatcher_do_fault(struct kgsl_device *device)
 	 */
 
 	cmdbatch = replay[0];
-
-	/*
-	 * If GFT recovered more than X times in Y ms invalidate the context
-	 * and do not attempt recovery.
-	 * Example: X==3 and Y==3000 ms, GPU hung at 500ms, 1700ms, 25000ms and
-	 * 3000ms for the same context, we will not try FT and invalidate the
-	 * context @3000ms because context triggered GFT more than 3 times in
-	 * last 3 seconds. If a context caused recoverable GPU hangs
-	 * where 1st and 4th gpu hang are more than 3 seconds apart we
-	 * won't disable GFT and invalidate the context.
-	 */
-	if (test_bit(KGSL_FT_THROTTLE, &cmdbatch->fault_policy)) {
-		if (time_after(jiffies, (cmdbatch->context->fault_time
-				+ msecs_to_jiffies(_fault_throttle_time)))) {
-			cmdbatch->context->fault_time = jiffies;
-			cmdbatch->context->fault_count = 1;
-		} else {
-			cmdbatch->context->fault_count++;
-			if (cmdbatch->context->fault_count >
-					_fault_throttle_burst) {
-				set_bit(KGSL_FT_DISABLE,
-						&cmdbatch->fault_policy);
-				pr_fault(device, cmdbatch,
-					 "gpu fault threshold exceeded %d faults in %d msecs\n",
-					 _fault_throttle_burst,
-					 _fault_throttle_time);
-			}
-		}
-	}
 
 	/*
 	 * If FT is disabled for this cmdbatch invalidate immediately
@@ -1681,10 +1631,6 @@ static DISPATCHER_UINT_ATTR(cmdbatch_timeout, 0644, 0, _cmdbatch_timeout);
 static DISPATCHER_UINT_ATTR(context_queue_wait, 0644, 0, _context_queue_wait);
 static DISPATCHER_UINT_ATTR(fault_detect_interval, 0644, 0,
 	_fault_timer_interval);
-static DISPATCHER_UINT_ATTR(fault_throttle_time, 0644, 0,
-	_fault_throttle_time);
-static DISPATCHER_UINT_ATTR(fault_throttle_burst, 0644, 0,
-	_fault_throttle_burst);
 
 static struct attribute *dispatcher_attrs[] = {
 	&dispatcher_attr_inflight.attr,
@@ -1693,8 +1639,6 @@ static struct attribute *dispatcher_attrs[] = {
 	&dispatcher_attr_cmdbatch_timeout.attr,
 	&dispatcher_attr_context_queue_wait.attr,
 	&dispatcher_attr_fault_detect_interval.attr,
-	&dispatcher_attr_fault_throttle_time.attr,
-	&dispatcher_attr_fault_throttle_burst.attr,
 	NULL,
 };
 

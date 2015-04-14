@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2014, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -44,6 +44,129 @@
    and provided to the battery driver in the units desired for
    their framework which is 0.1DegC. True resolution of 0.1DegC
    will result in the below table size to increase by 10 times */
+
+#if defined(CONFIG_SEC_KANAS_PROJECT)
+static const struct qpnp_vadc_map_pt adcmap_btm_threshold[] = {
+	{-200,	1692},
+	{-190,	1685},
+	{-180,	1678},
+	{-170,	1671},
+	{-160,	1664},
+	{-150,	1657},
+	{-140,	1650},
+	{-130,	1643},
+	{-120,	1636},
+	{-110,	1629},
+	{-100,	1619},
+	{-90,	1608},
+	{-80,	1597},
+	{-70,	1586},
+	{-60,	1575},
+	{-50,	1564},
+	{-40,	1553},
+	{-30,	1542},
+	{-20,	1531},
+	{-10,	1520},
+	{0,	1508},
+	{10,	1493},
+	{20,	1478},
+	{30,	1463},
+	{40,	1448},
+	{50,	1433},
+	{60,	1418},
+	{70,	1403},
+	{80,	1388},
+	{90,	1373},
+	{100,	1358},
+	{110,	1339},
+	{120,	1320},
+	{130,	1301},
+	{140,	1282},
+	{150,	1263},
+	{160,	1244},
+	{170,	1225},
+	{180,	1206},
+	{190,	1187},
+	{200,	1170},
+	{210,	1150},
+	{220,	1130},
+	{230,	1110},
+	{240,	1090},
+	{250,	1070},
+	{260,	1050},
+	{270,	1030},
+	{280,	1010},
+	{290,	990},
+	{300,	970},
+	{310,	950},
+	{320,	930},
+	{330,	910},
+	{340,	890},
+	{350,	870},
+	{360,	850},
+	{370,	830},
+	{380,	810},
+	{390,	790},
+	{400,	773},
+	{410,	754},
+	{420,	735},
+	{430,	716},
+	{440,	697},
+	{450,	678},
+	{460,	659},
+	{470,	640},
+	{480,	621},
+	{490,	602},
+	{500,	586},
+	{510,	572},
+	{520,	558},
+	{530,	544},
+	{540,	530},
+	{550,	516},
+	{560,	502},
+	{570,	488},
+	{580,	474},
+	{590,	460},
+	{600,	447},
+};
+#elif defined(CONFIG_MACH_S3VE3G_EUR)
+static const struct qpnp_vadc_map_pt adcmap_btm_threshold[] = {
+	{-220,	1673},
+	{-200,	1658},
+	{-170,	1630},
+	{-150,	1616},
+	{-100,	1544},
+	{-70,	1501},	
+	{-50,	1468},
+	{-20,	1430},	
+	{0,		1394},
+	{20,	1351},	
+	{50,	1305},
+	{100,	1188},
+	{150,	1077},
+	{200,	974	},
+	{250,	865	},
+	{300,	759	},
+	{320,	733	},	
+	{350,	675	},
+	{370,	629	},	
+	{400,	578	},
+	{420,	547	},	
+	{450,	508	},
+	{470,	478	},	
+	{500,	442	},
+	{520,	409	},	
+	{550,	376	},
+	{570,	347	},	
+	{600,	319	},
+	{620,	295	},	
+	{650,	269	},
+	{700,	231	},
+	{800,	177	},
+	{820,	171	},	
+	{850,	151	},
+};
+#else
 static const struct qpnp_vadc_map_pt adcmap_btm_threshold[] = {
 	{-300,	1642},
 	{-200,	1544},
@@ -129,6 +252,7 @@ static const struct qpnp_vadc_map_pt adcmap_btm_threshold[] = {
 	{780,	208},
 	{790,	203}
 };
+#endif
 
 static const struct qpnp_vadc_map_pt adcmap_qrd_btm_threshold[] = {
 	{-200,	1540},
@@ -496,8 +620,7 @@ int32_t qpnp_adc_scale_pmic_therm(struct qpnp_vadc_chip *vadc,
 
 	if (!chan_properties || !chan_properties->offset_gain_numerator ||
 		!chan_properties->offset_gain_denominator || !adc_properties
-		|| !adc_chan_result
-		|| !chan_properties->adc_graph[CALIB_ABSOLUTE].dy)
+		|| !adc_chan_result)
 		return -EINVAL;
 
 	pmic_voltage = (adc_code -
@@ -985,92 +1108,6 @@ int32_t qpnp_vadc_check_result(int32_t *data)
 	return 0;
 }
 EXPORT_SYMBOL(qpnp_vadc_check_result);
-
-int qpnp_adc_get_revid_version(struct device *dev)
-{
-	struct pmic_revid_data *revid_data;
-	struct device_node *revid_dev_node;
-
-	revid_dev_node = of_parse_phandle(dev->of_node,
-						"qcom,pmic-revid", 0);
-	if (!revid_dev_node) {
-		pr_debug("Missing qcom,pmic-revid property\n");
-		return -EINVAL;
-	}
-
-	revid_data = get_revid_data(revid_dev_node);
-	if (IS_ERR(revid_data)) {
-		pr_debug("revid error rc = %ld\n", PTR_ERR(revid_data));
-		return -EINVAL;
-	}
-
-	if ((revid_data->rev1 == PM8941_V3P1_REV1) &&
-		(revid_data->rev2 == PM8941_V3P1_REV2) &&
-		(revid_data->rev3 == PM8941_V3P1_REV3) &&
-		(revid_data->rev4 == PM8941_V3P1_REV4) &&
-		(revid_data->pmic_type == PM8941_V3P1_TYPE) &&
-		(revid_data->pmic_subtype == PM8941_V3P1_SUBTYPE))
-			return QPNP_REV_ID_8941_3_1;
-	else if ((revid_data->rev1 == PM8941_V3P0_REV1) &&
-		(revid_data->rev2 == PM8941_V3P0_REV2) &&
-		(revid_data->rev3 == PM8941_V3P0_REV3) &&
-		(revid_data->rev4 == PM8941_V3P0_REV4) &&
-		(revid_data->pmic_type == PM8941_V3P0_TYPE) &&
-		(revid_data->pmic_subtype == PM8941_V3P0_SUBTYPE))
-			return QPNP_REV_ID_8941_3_0;
-	else if ((revid_data->rev1 == PM8941_V2P0_REV1) &&
-		(revid_data->rev2 == PM8941_V2P0_REV2) &&
-		(revid_data->rev3 == PM8941_V2P0_REV3) &&
-		(revid_data->rev4 == PM8941_V2P0_REV4) &&
-		(revid_data->pmic_type == PM8941_V2P0_TYPE) &&
-		(revid_data->pmic_subtype == PM8941_V2P0_SUBTYPE))
-			return QPNP_REV_ID_8941_2_0;
-	else if ((revid_data->rev1 == PM8226_V2P2_REV1) &&
-		(revid_data->rev2 == PM8226_V2P2_REV2) &&
-		(revid_data->rev3 == PM8226_V2P2_REV3) &&
-		(revid_data->rev4 == PM8226_V2P2_REV4) &&
-		(revid_data->pmic_type == PM8226_V2P2_TYPE) &&
-		(revid_data->pmic_subtype == PM8226_V2P2_SUBTYPE))
-			return QPNP_REV_ID_8026_2_2;
-	else if ((revid_data->rev1 == PM8226_V2P1_REV1) &&
-		(revid_data->rev2 == PM8226_V2P1_REV2) &&
-		(revid_data->rev3 == PM8226_V2P1_REV3) &&
-		(revid_data->rev4 == PM8226_V2P1_REV4) &&
-		(revid_data->pmic_type == PM8226_V2P1_TYPE) &&
-		(revid_data->pmic_subtype == PM8226_V2P1_SUBTYPE))
-			return QPNP_REV_ID_8026_2_1;
-	else if ((revid_data->rev1 == PM8226_V2P0_REV1) &&
-		(revid_data->rev2 == PM8226_V2P0_REV2) &&
-		(revid_data->rev3 == PM8226_V2P0_REV3) &&
-		(revid_data->rev4 == PM8226_V2P0_REV4) &&
-		(revid_data->pmic_type == PM8226_V2P0_TYPE) &&
-		(revid_data->pmic_subtype == PM8226_V2P0_SUBTYPE))
-			return QPNP_REV_ID_8026_2_0;
-	else if ((revid_data->rev1 == PM8226_V1P0_REV1) &&
-		(revid_data->rev2 == PM8226_V1P0_REV2) &&
-		(revid_data->rev3 == PM8226_V1P0_REV3) &&
-		(revid_data->rev4 == PM8226_V1P0_REV4) &&
-		(revid_data->pmic_type == PM8226_V1P0_TYPE) &&
-		(revid_data->pmic_subtype == PM8226_V1P0_SUBTYPE))
-			return QPNP_REV_ID_8026_1_0;
-	else if ((revid_data->rev1 == PM8110_V1P0_REV1) &&
-		(revid_data->rev2 == PM8110_V1P0_REV2) &&
-		(revid_data->rev3 == PM8110_V1P0_REV3) &&
-		(revid_data->rev4 == PM8110_V1P0_REV4) &&
-		(revid_data->pmic_type == PM8110_V1P0_TYPE) &&
-		(revid_data->pmic_subtype == PM8110_V1P0_SUBTYPE))
-			return QPNP_REV_ID_8110_1_0;
-	else if ((revid_data->rev1 == PM8110_V2P0_REV1) &&
-		(revid_data->rev2 == PM8110_V2P0_REV2) &&
-		(revid_data->rev3 == PM8110_V2P0_REV3) &&
-		(revid_data->rev4 == PM8110_V2P0_REV4) &&
-		(revid_data->pmic_type == PM8110_V2P0_TYPE) &&
-		(revid_data->pmic_subtype == PM8110_V2P0_SUBTYPE))
-			return QPNP_REV_ID_8110_2_0;
-	else
-		return -EINVAL;
-}
-EXPORT_SYMBOL(qpnp_adc_get_revid_version);
 
 int32_t qpnp_adc_get_devicetree_data(struct spmi_device *spmi,
 			struct qpnp_adc_drv *adc_qpnp)

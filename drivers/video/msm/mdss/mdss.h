@@ -94,6 +94,15 @@ struct mdss_prefill_data {
 	u32 fbc_lines;
 };
 
+enum mdss_hw_index {
+	MDSS_HW_MDP,
+	MDSS_HW_DSI0,
+	MDSS_HW_DSI1,
+	MDSS_HW_HDMI,
+	MDSS_HW_EDP,
+	MDSS_MAX_HW_BLK
+};
+
 struct mdss_data_type {
 	u32 mdp_rev;
 	struct clk *mdp_clk[MDSS_MAX_CLK];
@@ -117,6 +126,7 @@ struct mdss_data_type {
 	u32 has_bwc;
 	u32 has_decimation;
 	u8 has_wfd_blk;
+	u32 has_no_lut_read;
 	u8 has_wb_ad;
 
 	u32 rotator_ot_limit;
@@ -148,6 +158,7 @@ struct mdss_data_type {
 
 	struct mdss_fudge_factor ab_factor;
 	struct mdss_fudge_factor ib_factor;
+	struct mdss_fudge_factor ib_factor_overlap;
 	struct mdss_fudge_factor clk_factor;
 
 	struct mdss_hw_settings *hw_settings;
@@ -191,19 +202,14 @@ struct mdss_data_type {
 	struct mdss_panel_cfg pan_cfg;
 
 	int handoff_pending;
+
 	struct mdss_prefill_data prefill_data;
-	bool ulps;
+
+	int iommu_ref_cnt;
+	u64 ab[MDSS_MAX_HW_BLK];
+	u64 ib[MDSS_MAX_HW_BLK];
 };
 extern struct mdss_data_type *mdss_res;
-
-enum mdss_hw_index {
-	MDSS_HW_MDP,
-	MDSS_HW_DSI0,
-	MDSS_HW_DSI1,
-	MDSS_HW_HDMI,
-	MDSS_HW_EDP,
-	MDSS_MAX_HW_BLK
-};
 
 struct mdss_hw {
 	u32 hw_ndx;
@@ -215,21 +221,36 @@ int mdss_register_irq(struct mdss_hw *hw);
 void mdss_enable_irq(struct mdss_hw *hw);
 void mdss_disable_irq(struct mdss_hw *hw);
 void mdss_disable_irq_nosync(struct mdss_hw *hw);
+void mdss_mdp_dump_power_clk(void);
+
+
+#if defined (CONFIG_FB_MSM_MDSS_DSI_DBG)
+int mdss_mdp_debug_bus(void);
+void xlog(const char *name, u32 data0, u32 data1, u32 data2, u32 data3, u32 data4, u32 data5);
+void xlog_dump(void);
+#endif
+
+#if defined (CONFIG_FB_MSM_MDSS_DBG_SEQ_TICK)
+void mdss_dbg_tick_save(int op_name);
+#endif
+
+int mdss_bus_scale_set_quota(int client, u64 ab_quota, u64 ib_quota);
 void mdss_bus_bandwidth_ctrl(int enable);
+int mdss_iommu_ctrl(int enable);
 
 static inline struct ion_client *mdss_get_ionclient(void)
 {
 	if (!mdss_res)
 		return NULL;
 	return mdss_res->iclient;
-}
+};
 
 static inline int is_mdss_iommu_attached(void)
 {
 	if (!mdss_res)
 		return false;
 	return mdss_res->iommu_attached;
-}
+};
 
 static inline int mdss_get_iommu_domain(u32 type)
 {
@@ -240,5 +261,5 @@ static inline int mdss_get_iommu_domain(u32 type)
 		return -ENODEV;
 
 	return mdss_res->iommu_map[type].domain_idx;
-}
+};
 #endif /* MDSS_H */

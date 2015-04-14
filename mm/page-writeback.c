@@ -189,7 +189,8 @@ static unsigned long highmem_dirtyable_memory(unsigned long total)
 		x += zone_page_state(z, NR_FREE_PAGES) +
 		     zone_reclaimable_pages(z) - z->dirty_balance_reserve;
 	}
-	/*
+#if defined(CONFIG_ARCH_MSM8226)|| defined(CONFIG_ARCH_MSM8610)
+	 /* 
 	 * Unreclaimable memory (kernel memory or anonymous memory
 	 * without swap) can bring down the dirtyable pages below
 	 * the zone's dirty balance reserve and the above calculation
@@ -200,7 +201,7 @@ static unsigned long highmem_dirtyable_memory(unsigned long total)
 	 */
 	if ((long)x < 0)
 		x = 0;
-
+#endif
 	/*
 	 * Make sure that the number of highmem pages is never larger
 	 * than the number of the total dirtyable memory. This can only
@@ -223,8 +224,13 @@ unsigned long global_dirtyable_memory(void)
 {
 	unsigned long x;
 
+#if defined(CONFIG_ARCH_MSM8226)|| defined(CONFIG_ARCH_MSM8610)
 	x = global_page_state(NR_FREE_PAGES) + global_reclaimable_pages();
 	x -= min(x, dirty_balance_reserve);
+#else
+	x = global_page_state(NR_FREE_PAGES) + global_reclaimable_pages() -
+		dirty_balance_reserve;
+#endif
 
 	if (!vm_highmem_is_dirtyable)
 		x -= highmem_dirtyable_memory(x);
@@ -291,12 +297,18 @@ static unsigned long zone_dirtyable_memory(struct zone *zone)
 	 * highmem zone can hold its share of dirty pages, so we don't
 	 * care about vm_highmem_is_dirtyable here.
 	 */
+#if defined(CONFIG_ARCH_MSM8226)|| defined(CONFIG_ARCH_MSM8610)
 	unsigned long nr_pages = zone_page_state(zone, NR_FREE_PAGES) +
 		zone_reclaimable_pages(zone);
 
 	/* don't allow this to underflow */
 	nr_pages -= min(nr_pages, zone->dirty_balance_reserve);
 	return nr_pages;
+#else
+	return zone_page_state(zone, NR_FREE_PAGES) +
+		   zone_reclaimable_pages(zone) -
+		   zone->dirty_balance_reserve;
+#endif
 }
 
 /**

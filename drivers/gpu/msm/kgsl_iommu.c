@@ -515,7 +515,7 @@ static void kgsl_iommu_clk_disable_event(struct kgsl_device *device, void *data,
 		/* something went wrong with the event handling mechanism */
 		BUG_ON(1);
 
-	/* Free param we are done using it */
+	/* Free param we are done using it*/
 	kfree(param);
 }
 
@@ -641,18 +641,16 @@ static int kgsl_iommu_pt_equal(struct kgsl_mmu *mmu,
 				phys_addr_t pt_base)
 {
 	struct kgsl_iommu_pt *iommu_pt = pt ? pt->priv : NULL;
-	phys_addr_t domain_ptbase;
+	phys_addr_t domain_ptbase = iommu_pt ?
+				iommu_get_pt_base_addr(iommu_pt->domain) : 0;
 
-	if (iommu_pt == NULL)
-		return 0;
-
-	domain_ptbase = iommu_get_pt_base_addr(iommu_pt->domain)
-			& KGSL_IOMMU_CTX_TTBR0_ADDR_MASK;
+	/* Only compare the valid address bits of the pt_base */
+	domain_ptbase &= KGSL_IOMMU_CTX_TTBR0_ADDR_MASK;
 
 	pt_base &= KGSL_IOMMU_CTX_TTBR0_ADDR_MASK;
 
-	return (domain_ptbase == pt_base);
-
+	return domain_ptbase && pt_base &&
+		(domain_ptbase == pt_base);
 }
 
 /*
@@ -1497,7 +1495,7 @@ static int kgsl_iommu_setup_defaultpagetable(struct kgsl_mmu *mmu)
 
 	/* If chip is not 8960 then we use the 2nd context bank for pagetable
 	 * switching on the 3D side for which a separate table is allocated */
-	if (msm_soc_version_supports_iommu_v0()) {
+	if (!cpu_is_msm8960() && msm_soc_version_supports_iommu_v0()) {
 		mmu->priv_bank_table =
 			kgsl_mmu_getpagetable(mmu,
 					KGSL_MMU_PRIV_BANK_TABLE_NAME);
@@ -1775,21 +1773,13 @@ kgsl_iommu_unmap(struct kgsl_pagetable *pt,
 		return ret;
 	}
 
-	/*
-	 * Check to see if the current thread already holds the device mutex.
-	 * If it does not, then take the device mutex which is required for
-	 * flushing the tlb
-	 */
 	if (!mutex_is_locked(&device->mutex) ||
 		device->mutex.owner != current) {
 		mutex_lock(&device->mutex);
 		lock_taken = 1;
 	}
 
-	/*
-	 * Flush the tlb only if the iommu device is attached and the pagetable
-	 * hasn't been switched yet
-	 */
+	/* If current pt then flush immediately */
 	if (kgsl_mmu_is_perprocess(pt->mmu) &&
 		iommu->iommu_units[0].dev[KGSL_IOMMU_CONTEXT_USER].attached &&
 		kgsl_iommu_pt_equal(pt->mmu, pt,
@@ -1972,6 +1962,7 @@ static int kgsl_iommu_default_setstate(struct kgsl_mmu *mmu,
 	phys_addr_t pt_val;
 
 	ret = kgsl_iommu_enable_clk(mmu, KGSL_IOMMU_CONTEXT_USER);
+
 	if (ret) {
 		KGSL_DRV_ERR(mmu->device, "Failed to enable iommu clocks\n");
 		return ret;

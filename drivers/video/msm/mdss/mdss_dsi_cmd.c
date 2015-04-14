@@ -71,7 +71,6 @@ char *mdss_dsi_buf_init(struct dsi_buf *dp)
 
 int mdss_dsi_buf_alloc(struct dsi_buf *dp, int size)
 {
-
 	dp->start = dma_alloc_writecombine(NULL, size, &dp->dmap, GFP_KERNEL);
 	if (dp->start == NULL) {
 		pr_err("%s:%u\n", __func__, __LINE__);
@@ -613,6 +612,7 @@ void mdss_dsi_set_tear_on(struct mdss_dsi_ctrl_pdata *ctrl)
 	cmdreq.flags = CMD_REQ_COMMIT;
 	cmdreq.rlen = 0;
 	cmdreq.cb = NULL;
+	cmdreq.rbuf = ctrl->rx_buf.data;
 
 	mdss_dsi_cmdlist_put(ctrl, &cmdreq);
 }
@@ -626,6 +626,7 @@ void mdss_dsi_set_tear_off(struct mdss_dsi_ctrl_pdata *ctrl)
 	cmdreq.flags = CMD_REQ_COMMIT;
 	cmdreq.rlen = 0;
 	cmdreq.cb = NULL;
+	cmdreq.rbuf = ctrl->rx_buf.data;
 
 	mdss_dsi_cmdlist_put(ctrl, &cmdreq);
 }
@@ -655,7 +656,7 @@ int mdss_dsi_cmdlist_put(struct mdss_dsi_ctrl_pdata *ctrl,
 {
 	struct dcs_cmd_req *req;
 	struct dcs_cmd_list *clist;
-	int ret = -EINVAL;
+	int ret = 0;
 
 	mutex_lock(&ctrl->cmd_mutex);
 	clist = &ctrl->cmdlist;
@@ -674,6 +675,7 @@ int mdss_dsi_cmdlist_put(struct mdss_dsi_ctrl_pdata *ctrl,
 	}
 	mutex_unlock(&ctrl->cmd_mutex);
 
+	ret++;
 	pr_debug("%s: tot=%d put=%d get=%d\n", __func__,
 		clist->tot, clist->put, clist->get);
 
@@ -681,8 +683,7 @@ int mdss_dsi_cmdlist_put(struct mdss_dsi_ctrl_pdata *ctrl,
 		if (!ctrl->cmdlist_commit)
 			pr_err("cmdlist_commit not implemented!\n");
 		else
-			ret = ctrl->cmdlist_commit(ctrl, 0);
+			ctrl->cmdlist_commit(ctrl, 0);
 	}
 	return ret;
 }
-

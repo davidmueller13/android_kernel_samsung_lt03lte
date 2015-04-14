@@ -107,10 +107,6 @@
 #define DIAG_STM_WCNSS	0x04
 #define DIAG_STM_APPS	0x08
 
-#define DIAG_DIAG_STM		0x214
-
-#define BAD_PARAM_RESPONSE_MESSAGE 20
-
 /*
  * The status bit masks when received in a signal handler are to be
  * used in conjunction with the peripheral list bit mask to determine the
@@ -402,6 +398,8 @@ struct diagchar_dev {
 	int logging_process_id;
 	struct task_struct *socket_process;
 	struct task_struct *callback_process;
+	/* pid for diag_mdlog(CP silent log app) */
+	struct pid *silent_log_pid;
 #ifdef CONFIG_DIAG_SDIO_PIPE
 	unsigned char *buf_in_sdio;
 	unsigned char *usb_buf_mdm_out;
