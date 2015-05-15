@@ -551,7 +551,7 @@ static int smd_tty_open(struct tty_struct *tty, struct file *f)
 
 static void smd_tty_close(struct tty_struct *tty, struct file *f)
 {
-	struct smd_tty_info *info = smd_tty + tty->index;
+	struct smd_tty_info *info = tty->driver_data;
 
 	tty_port_close(&info->port, tty, f);
 }
@@ -820,8 +820,11 @@ static int smd_tty_core_init(void)
 			/*
 			 * use legacy mode for 8660 Standalone (subtype 0)
 			 */
-			legacy_ds |= cpu_is_msm8x60() &&
+			legacy_ds |= (cpu_is_msm8x60() || soc_class_is_msm8974()) &&
 					(socinfo_get_platform_subtype() == 0x0);
+
+			/* Samsung request for all project */
+			legacy_ds = 1;
 
 			if (!legacy_ds)
 				continue;
